@@ -7,26 +7,10 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from notion.client import NotionClient
+from notion.collection import NotionDate
 
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
-
-# add
-# google
-#   nevent.id not in gevents
-#   type - > calendar
-#   no type -> no add
-# notion
-#   gevent.id not in nevents
-#   calendar - > Type
-#
-# update
-# google
-# notoin
-#
-# delete
-# google
-# notion
 
 def gcal_auth():
     global creds
@@ -89,6 +73,7 @@ def main():
     notion_table = "https://www.notion.so/andreirbkn/e51e40bbc4a740dea8b31b9935a0455c?v=f4ba657e5a074e9aa5f21e1fc664f0a9"
     notion_date_prop = "Target Date"
     notion_cal_prop = "Calendar"
+    notion_del_prop = "Archive"
 
     if os.path.exists("token.pickle"):
         with open("token.pickle", "rb") as token:
@@ -103,13 +88,18 @@ def main():
     timeMin = (datetime.datetime.utcnow() - datetime.timedelta(days=days_range)
                ).isoformat() + "Z"  # "Z" indicates UTC time
     google_res = {}
-    for calendar_name, calendar_id in google_calendar_ids.items():
-        events_result = service.events().list(calendarId=calendar_id,
-                                              timeMin=timeMin,
-                                              # maxResults=2048,
-                                              singleEvents=True,
-                                              orderBy="startTime").execute()
-        google_res[calendar_name] = events_result.get("items", [])
+
+    # get gcal rows by each calendar
+    try:
+        for calendar_name, calendar_id in google_calendar_ids.items():
+            events_result = service.events().list(calendarId=calendar_id,
+                                                timeMin=timeMin,
+                                                # maxResults=2048,
+                                                singleEvents=True,
+                                                orderBy="startTime").execute()
+            google_res[calendar_name] = events_result.get("items", [])
+    except Exception as e:
+        print(e)
 
     google_events = []
     for cal_name, res_events in google_res.items():
@@ -122,9 +112,14 @@ def main():
             new_event["description"] = gevent["description"]
             new_event["start"] = gevent["start"]
             new_event["end"] = gevent["end"]
-            new_event["updated"] = gevent["updated"]
+            upd = str(gevent["updated"]).replace(" ", "T").split('.')[0]
+            new_event["updated"] = datetime.datetime.strptime(upd, "%Y-%m-%dT%H:%M:%S") 
             new_event["calendar"] = cal_name
-            new_event["stauts"] = gevent["status"]
+            if gevent["status"] == "canceled":
+                new_event["deleted"] = True
+            else:
+                new_event["deleted"] = False
+            
 
             google_events.append(new_event)
     google_events_ids = [x['id'] for x in google_events]
@@ -148,7 +143,11 @@ def main():
         }],
         "operator": "and"
     }
-    notion_res = cv.build_query(filter=filter_params).execute()
+    #get rows from notion table
+    try:
+        notion_res = cv.build_query(filter=filter_params).execute()
+    except Exception as e:
+        print(e)
 
     notion_events = []
     for nevent in notion_res:
@@ -183,14 +182,49 @@ def main():
             new_event["calendar"] = ""
         else:
             new_event["calendar"] = getattr(nevent, notion_cal_prop)
-        new_event["updated"] = nevent.Last_Edited
+            
+        new_event["updated"] = datetime.datetime.strptime(
+                                str(nevent.Last_Edited).replace(" ", "T"), 
+                                "%Y-%m-%dT%H:%M:%S") 
+        new_event["deleted"] = getattr(nevent, notion_del_prop)
 
         notion_events.append(new_event)
-    
+    notion_events_ids = [x["id"] for x in notion_events]
     
 
     ### SORT DATA
     #====================================================================================================
+    add_to_notion = [] # gev.id not in nevs
+    add_to_google = [] # nev.id not in gevs and nev.start not null and nev.cal not null
+    update_in_notion = [] #nev.id == gev.id and gev.upd < nev.upd
+    update_in_google = [] #gev.id == nev.id and gev.upd > nev.upd
+    delete_from_notion = [] #nev.id == gev.id and gev.stat == canceled and gev.upd > nev.upd
+    delete_from_google = [] #nev.id == gev.id and nev.stat == canceled and gev.upd < nev.upd
+
+    for nev in notion_events:
+        if nev["id"] not in google_events_ids and nev["start"] != None and nev["calendar"] != None:
+            add_to_google.append(nev)
+
+    for gev in google_events:
+        if gev["id"] not in notion_events_ids:
+            add_to_notion.append(gev)
+
+    for nev in notion_events:
+        for gev in google_events:
+            if (gev["id"] == nev["id"]):
+
+                # later = larger
+                if (gev["updated"] > nev["updated"]):
+                    update_in_notion.append(gev)
+                if (gev["updated"] < nev["updated"]):
+                    update_in_google.append(nev)
+
+                if (gev["updated"] > nev["updated"] and gev["status"] == "canceled"):
+                    delete_from_notion.append(gev)
+                if (gev["updated"] < nev["updated"] and (nev["deleted"] == True or nev["deleted"] != None)):
+                    delete_from_google.append(nev)
+    
+
 
     print("Script reached the end")
 
