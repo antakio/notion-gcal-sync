@@ -11,6 +11,22 @@ from notion.client import NotionClient
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
+# add
+# google
+#   nevent.id not in gevents
+#   type - > calendar
+#   no type -> no add
+# notion
+#   gevent.id not in nevents
+#   calendar - > Type
+#
+# update
+# google
+# notoin
+#
+# delete
+# google
+# notion
 
 def gcal_auth():
     global creds
@@ -57,14 +73,18 @@ def gcal_auth():
 
 
 def main():
+
+    ### PREP DATA
+    #====================================================================================================
     global creds
 
     days_range = 30  # Number of days, from events would be loaded
     google_calendar_ids = {
         "Work": "38ubqlt9barnad61d81cpinj4s@group.calendar.google.com",
         "Family": "9js0btqfg3vt88cm62cafqfhgs@group.calendar.google.com",
-#       "NameOfCalendar" : "calendar ID" 
+    #   "NameOfCalendar" : "calendar ID" 
     }
+    MULTICALMODE = (len(google_calendar_ids) > 1)
     notion_token_v2 = "f2282d5d6a0776908ed44507033636e34bb871450db8af9d4aaddd5d622238524983c78f77dc09178e9e900bc3de3502f40bdefa78a850321e39b3e45a09ca1107b3bbd9a624bf059bd19da18cd9"
     notion_table = "https://www.notion.so/andreirbkn/e51e40bbc4a740dea8b31b9935a0455c?v=f4ba657e5a074e9aa5f21e1fc664f0a9"
     notion_date_prop = "Target Date"
@@ -74,7 +94,10 @@ def main():
         with open("token.pickle", "rb") as token:
             creds = pickle.load(token)
     service = build("calendar", "v3", credentials=creds)
-    # Call the Calendar API
+
+
+    ### Call the Google API     
+    #====================================================================================================
     timeRange = (datetime.datetime.utcnow() - datetime.timedelta(days=days_range)
                  )
     timeMin = (datetime.datetime.utcnow() - datetime.timedelta(days=days_range)
@@ -101,11 +124,13 @@ def main():
             new_event["end"] = gevent["end"]
             new_event["updated"] = gevent["updated"]
             new_event["calendar"] = cal_name
+            new_event["stauts"] = gevent["status"]
 
             google_events.append(new_event)
+    google_events_ids = [x['id'] for x in google_events]
 
-
-#   Call the Notion API
+    ### Call the Notion API
+    #====================================================================================================
     client = NotionClient(token_v2=notion_token_v2)
     cv = client.get_collection_view(notion_table)
 
@@ -128,45 +153,46 @@ def main():
     notion_events = []
     for nevent in notion_res:
         print("=====> "+str(getattr(nevent, notion_cal_prop))+" | "+str(nevent.name))
-        if not hasattr(nevent, notion_date_prop):
-            continue
-        if not hasattr(getattr(nevent, notion_date_prop), "start"):
-            continue
-        if len(google_calendar_ids) > 1: # Multi calendar sync mode
-            if not hasattr(nevent, notion_cal_prop):
-                continue            
-            if (getattr(nevent, notion_cal_prop) not in google_calendar_ids.keys()):
-                continue
-        print("In Range")
 
         new_event = {}
         new_event["id"] = nevent.id.replace("-", "000")
         new_event["title"] = nevent.name
-        #new_event['description'] = ""
-        start = str(getattr(getattr(nevent, notion_date_prop),"start")).replace(" ", "T")
-        # start is a date
-        if "T" not in start:
-            new_event["start"] = datetime.datetime.strptime(start, "%Y-%m-%d")
-        # start is a datetime
+        # new_event Target_Date  = nevent Target Date
+        if not hasattr(nevent, notion_date_prop):
+            new_event[notion_date_prop] = None
         else:
-            new_event["start"] = datetime.datetime.strptime(start, "%Y-%m-%dT%H:%M:%S")
-
-        # date in notion can exists without end
-        if getattr(getattr(nevent, notion_date_prop),"end") != None:
-            end = str(getattr(getattr(nevent, notion_date_prop),"end")).replace(" ", "T")
-            # end is a date
-            if "T" not in end:
-                new_event["end"] = datetime.datetime.strptime(end, "%Y-%m-%d")
-            # end is a datetime
+            start = str(getattr(getattr(nevent, notion_date_prop),"start")).replace(" ", "T")
+            # start is a date
+            if "T" not in start:
+                new_event["start"] = datetime.datetime.strptime(start, "%Y-%m-%d")
+            # start is a datetime
             else:
-                new_event["end"] = datetime.datetime.strptime(end, "%Y-%m-%dT%H:%M:%S")
-
+                new_event["start"] = datetime.datetime.strptime(start, "%Y-%m-%dT%H:%M:%S")
+            # date in notion can exists without end
+            if getattr(getattr(nevent, notion_date_prop),"end") != None:
+                end = str(getattr(getattr(nevent, notion_date_prop),"end")).replace(" ", "T")
+                # end is a date
+                if "T" not in end:
+                    new_event["end"] = datetime.datetime.strptime(end, "%Y-%m-%d")
+                # end is a datetime
+                else:
+                    new_event["end"] = datetime.datetime.strptime(end, "%Y-%m-%dT%H:%M:%S")
+            else:
+                new_event["end"] = None
+        if not hasattr(nevent, notion_cal_prop):
+            new_event["calendar"] = ""
+        else:
+            new_event["calendar"] = getattr(nevent, notion_cal_prop)
         new_event["updated"] = nevent.Last_Edited
-        new_event["calendar"] = getattr(nevent, notion_cal_prop)
 
         notion_events.append(new_event)
+    
+    
 
-    print("Main reached")
+    ### SORT DATA
+    #====================================================================================================
+
+    print("Script reached the end")
 
 
 if __name__ == "__main__":
