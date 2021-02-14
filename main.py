@@ -64,6 +64,7 @@ def main():
     # ====================================================================================================
     global creds
     global google_calendar_ids
+    global timezone
 
     days_range = 30  # Number of days, from events would be loaded
     google_calendar_ids = {
@@ -77,6 +78,7 @@ def main():
     notion_date_prop = "Target Date"
     notion_cal_prop = "Calendar"
     notion_del_prop = "Archive"
+    timezone = "Asia/Yekaterinburg"
 
     if os.path.exists("token.pickle"):
         with open("token.pickle", "rb") as token:
@@ -201,7 +203,7 @@ def main():
     for nev in notion_events:
         if nev["id"] not in google_events_ids and nev["start"] != None and nev["calendar"] != None:
             add_to_google.append(nev)
-    print("Add to Google: " + str(len(add_to_notion)))
+    print("Add to Google: " + str(len(add_to_google)))
     for gev in google_events:
         if gev["id"] not in notion_events_ids:
             add_to_notion.append(gev)
@@ -209,9 +211,8 @@ def main():
     for nev in notion_events:
         for gev in google_events:
             if (gev["id"] == nev["id"]):
-
                 # later = larger
-                if (gev["updated"] > nev["updated"]):
+                if (gev["updated"] > nev["updated"]):   
                     update_in_notion.append(gev)
                 if (gev["updated"] < nev["updated"]):
                     update_in_google.append(nev)
@@ -229,8 +230,12 @@ def main():
     # ====================================================================================================
 
     for event in add_to_notion:
-        id = notion_add_event(cv, service, event,
+        identifier = notion_add_event(cv, service, event,
                               notion_date_prop, notion_cal_prop)
+        print(identifier)
+
+    for event in add_to_google:
+        identifier = google_add_event(service, event)
 
     print("Script reached the end")
 
@@ -273,21 +278,92 @@ def notion_add_event(notion_client, google_client, event, _date_prop, _cal_prop)
         print(e)
 
     nevent_id = str(notion_event.id.replace("-", "000"))
-    gevent = google_client.events().get(calendarId=google_calendar_ids[event["calendar"]],
+    event_body = google_client.events().get(calendarId=google_calendar_ids[event["calendar"]],
                                         eventId=event["id"]).execute()
 
-    gevent["id"] = nevent_id
-    del gevent["iCalUID"]
-    if 'recurringEventId' in gevent:
-        del gevent['recurringEventId']
+    event_body["id"] = nevent_id
+    del event_body["iCalUID"]
+    if 'recurringEventId' in event_body:    
+        del event_body['recurringEventId']
 
     google_client.events().delete(calendarId=google_calendar_ids[event["calendar"]],
                                   eventId=event["id"]).execute()
-    gevent_new = google_client.events().insert(
-        calendarId=google_calendar_ids[event["calendar"]], body=gevent).execute()
+    event_body_new = google_client.events().insert(
+        calendarId=google_calendar_ids[event["calendar"]], body=event_body).execute()
 
-    return nevent_id
+    return event_body_new["id"]
 
+def google_add_event(google_client, _event):
+   
+    #1 date - x - All day event -> start 0 0 start+1d 0 0
+    #2 date - date - Many days event -> start end
+    #3 datetime - x - Not impossible with google events -> start start
+    #4 datetime - datetime - regular -> start start
+
+    start = ""
+    end = ""
+    key = ""
+    # 1 3
+    if _event["end"] == None:
+        # 1
+        if (isinstance(_event["start"],datetime.date)):
+            start = datetime.datetime(_event["start"].year,_event["start"].month,_event["start"].day)
+            end = (start + datetime.timedelta(days=1))
+            key = "date"
+        # 3
+        if (isinstance(_event["start"],datetime.datetime)):
+            start = _event["start"]
+            end = _event["end"]
+            key = "dateTime"
+    # 2 4
+    else:
+        #2
+        if (isinstance(_event["start"],datetime.date)):
+            start = _event["start"]
+            end = _event["end"]
+            key = "date"
+        #4
+        if (isinstance(_event["start"],datetime.datetime)):
+            start = _event["start"]
+            end = _event["start"]
+            key = "dateTime"
+
+    start = str(start).replace(" ", "T")
+    end = str(end).replace(" ", "T")
+
+    event_body = {
+            "end": {
+                key : end,
+                "timeZone": timezone
+            },
+            "start": {
+                key : start,
+                "timeZone": timezone
+            },
+            "summary": _event["title"],
+            "id": _event["id"]
+        }
+
+    print(f"GOOGLE CREATE - TITLE: {_event['title']}")
+    print(f"GOOGLE CREATE - START: {start}")
+    print(f"GOOGLE CREATE - END: {end}")
+
+    try:
+        event = google_client.events().insert(calendarId=google_calendar_ids[_event["calendar"]], body=event_body).execute()
+        print(f"GOOGLE CREATE")
+    except Exception as e:
+        print(e)
+    try:
+        event = google_client.events().update(calendarId=google_calendar_ids[_event["calendar"]],
+                                        eventId=_event["id"], body=event).execute()
+        print("GOOGLE UPDATE")
+    except Exception as e:
+        print(e)
+        # the only way to end up here is by clearing your trash
+        # (do not do because it eliminates Notion IDs from the usable pool)
+        # print(f"Please make a new event in notion for {name}, it won't work since you emptied your trash!")
+        
+    return 1
 
 if __name__ == "__main__":
     if os.path.exists('token.pickle'):
