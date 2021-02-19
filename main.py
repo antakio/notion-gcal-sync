@@ -155,7 +155,7 @@ def main():
             print("Google ==> " +
                   str(new_event["calendar"] + " | "+str(new_event["title"])))
     google_events_ids = [x['id'] for x in google_events]
-    print("Google events amount:" + str(len(google_events_ids)))
+    #print("Google events amount:" + str(len(google_events_ids)))
 
     # Call the Notion API
     # ====================================================================================================
@@ -232,7 +232,7 @@ def main():
         print("Notion ==> " +
               str(new_event["calendar"]) + " | "+str(new_event["title"]))
     notion_events_ids = [x["id"] for x in notion_events]
-    print("Notion events amount:" + str(len(notion_events_ids)))
+    #print("Notion events amount:" + str(len(notion_events_ids)))
 
     # SORT DATA
     # ====================================================================================================
@@ -248,21 +248,59 @@ def main():
     for nev in notion_events:
         if nev["id"] not in google_events_ids and nev["start"] != None and nev["calendar"] != None:
             add_to_google.append(nev)
-    print("Add to Google: " + str(len(add_to_google)))
+    #print("Add to Google: " + str(len(add_to_google)))
     for gev in google_events:
         if gev["id"] not in notion_events_ids:
             add_to_notion.append(gev)
-    print("Add to Notion: " + str(len(add_to_notion)))
+    #print("Add to Notion: " + str(len(add_to_notion)))
     for nev in notion_events:
         for gev in google_events:
             if (gev["id"] == nev["id"]):
                 # later = larger
-                if ((gev["updated"] > nev["updated"]) 
-                and (gev["title"] != nev["title"] 
-                or gev["start"] != nev["start"]
-                or gev["end"] != nev["end"]
-                or gev["calendar"] != nev["calendar"])): 
-                    update_in_notion.append(gev)
+                if(gev["updated"] > nev["updated"]):
+                    n_update = False
+                    field = "title"
+                    if(gev[field] != nev[field]):
+                        n_update = True
+                        print(f"N UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                    field = "start"
+                    if(gev[field] != nev[field]):
+                        n_update = True
+                        print(f"N UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                    field = "end"
+                    if(gev[field] != nev[field]):
+                        n_update = True
+                        print(f"N UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                    field = "calendar" 
+                    if(gev[field] != nev[field]):
+                        n_update = True
+                        print(f"N UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+
+                    if n_update:
+                        update_in_notion.append(gev)
+
+                if(gev["updated"] < nev["updated"]):
+                    g_update = False
+                    field = "title"
+                    if(gev[field] != nev[field]):
+                        g_update = True
+                        print(f"G UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                    field = "start"
+                    if(gev[field] != nev[field]):
+                        g_update = True
+                        print(f"G UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                    field = "end"
+                    if(gev[field] != nev[field]):
+                        g_update = True
+                        print(f"G UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                    field = "calendar" 
+                    if(gev[field] != nev[field]):
+                        g_update = True
+                        print(f"G UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+
+                    if g_update:
+                        update_in_google.append(gev)
+
                 if ((gev["updated"] < nev["updated"]) 
                 and (gev["title"] != nev["title"] 
                 or gev["start"] != nev["start"]
