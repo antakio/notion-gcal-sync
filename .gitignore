@@ -5,6 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
+.vscode
 
 # Distribution / packaging
 .Python
@@ -127,3 +128,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Google auth
+token.pickle
+credentials.json
