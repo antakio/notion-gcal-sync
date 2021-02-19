@@ -115,16 +115,37 @@ def main():
             new_event["id"] = gevent["id"]
             new_event["title"] = gevent["summary"]
             new_event["description"] = gevent["description"]
-            new_event["start"] = parse(next(iter(gevent["start"].values()))).replace(tzinfo=None)
-            new_event["end"] = parse(next(iter(gevent["end"].values()))).replace(tzinfo=None)
-            if (new_event["start"].hour == 0 and new_event["start"].minute == 0 and new_event["start"].second == 0):
-                sstart = parse(next(iter(gevent["start"].values())))
-                new_event["start"] = datetime.date(sstart.year, sstart.month, sstart.day) 
-            if (new_event["end"].hour == 0 and new_event["end"].minute == 0 and new_event["end"].second == 0):
-                eend = parse(next(iter(gevent["end"].values())))
-                new_event["end"] = datetime.date(eend.year, eend.month, eend.day) 
+
+            # datetime1, datetime2
+            new_event["start"] = parse(next(iter(gevent["start"].values())))
+            new_event["end"] = parse(next(iter(gevent["end"].values())))
+
+            #all day events
+            if (new_event["start"].hour == 0 and new_event["start"].minute == 0
+            and new_event["end"].hour == 0 and new_event["end"].minute == 0):
+                # date1, date1
+                if(new_event["start"] == new_event["end"]):
+                    new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                    new_event["end"] = None
+                # date1, date1 + 1
+                days_delta = (new_event["end"] - new_event["start"]).days
+                if(days_delta == 1):
+                    new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                    new_event["end"] = None
+                # date1, date2
+                if(days_delta > 1):
+                    new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                    new_event["end"] = datetime.date(new_event["end"].year, new_event["end"].month, new_event["end"].day)
+            else:
+                # datetime1, datetime1
+                time_delta = (new_event["start"] - new_event["end"]).minutes
+                if (new_event["start"] == new_event["end"] or time_delta < 15):
+                    new_event["end"] = None
+                # datetime1, datetime2
+
             new_event["updated"] = parse(gevent["updated"].split('.')[0])
             new_event["calendar"] = cal_name
+
             if gevent["status"] == "canceled":
                 new_event["deleted"] = True
             else:
@@ -166,20 +187,39 @@ def main():
         new_event = {}
         new_event["id"] = nevent.id.replace("-", "000")
         new_event["title"] = nevent.name
+
         # new_event Target_Date  = nevent Target Date
         if not hasattr(nevent, notion_date_prop):
             new_event[notion_date_prop] = None
         else:
-            new_event["start"] = getattr(
-                getattr(nevent, notion_date_prop), "start")
+            new_event["start"] = getattr(getattr(nevent, notion_date_prop), "start")
+            new_event["end"] = getattr(getattr(nevent, notion_date_prop), "end")
 
-            # date in notion can exists without end
-            end = getattr(getattr(nevent, notion_date_prop), "end")
-            if end != None:
-                new_event["end"] = end
+            # date/datetime, None
+            if not new_event["end"]:
+                # date1, None
+                if isinstance(new_event["start"], datetime.date):
+                    a = 'a'
+                # datetime1, None
+                if isinstance(new_event["start"], datetime.datetime):
+                    b = 'b'
+
+            # date/datetime, date/datetime
             else:
-                new_event["end"] = (new_event["start"] + datetime.timedelta(days=1))
-
+                # date, date
+                if isinstance(new_event["start"], datetime.date):
+                    # date1, date1
+                    if (new_event["start"] == new_event["end"]):
+                        new_event["end"] = None
+                    # date1, date2
+                # datetime, datetime
+                if isinstance(new_event["start"], datetime.datetime):
+                    # datetime1, datetime1
+                    time_delta = (new_event["start"] - new_event["end"]).minutes
+                    if (new_event["start"] == new_event["end"] or time_delta < 15):
+                        new_event["end"] = None
+                    # datetime1, datetime2
+                    
         if not hasattr(nevent, notion_cal_prop):
             new_event["calendar"] = ""
         else:
