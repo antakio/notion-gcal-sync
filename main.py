@@ -65,8 +65,12 @@ def main():
     global creds
     global google_calendar_ids
     global timezone
+    global notion_table
+    global notion_date_prop
+    global notion_cal_prop
+    global notion_del_prop
 
-    days_range = 30  # Number of days, from events would be loaded
+    days_range = 0  # Number of days, from events would be loaded (0 - all)
     google_calendar_ids = {
         "Work": "38ubqlt9barnad61d81cpinj4s@group.calendar.google.com",
         "Family": "9js0btqfg3vt88cm62cafqfhgs@group.calendar.google.com",
@@ -87,10 +91,14 @@ def main():
 
     # Call the Google API
     # ====================================================================================================
-    timeRange = (datetime.datetime.utcnow() - datetime.timedelta(days=days_range)
-                 )
-    timeMin = (datetime.datetime.utcnow() - datetime.timedelta(days=days_range)
-               ).isoformat() + "Z"  # "Z" indicates UTC time
+
+    timeMin = None
+    timeRange = None
+    if days_range > 0:
+        timeRange = (datetime.datetime.utcnow() - datetime.timedelta(days=days_range)
+                    )
+        timeMin = (datetime.datetime.utcnow() - datetime.timedelta(days=days_range)
+                ).isoformat() + "Z"  # "Z" indicates UTC time
     google_res = {}
 
     # get gcal rows by each calendar
@@ -120,6 +128,9 @@ def main():
             new_event["start"] = parse(next(iter(gevent["start"].values())))
             new_event["end"] = parse(next(iter(gevent["end"].values())))
 
+            new_event["start"] = datetime.datetime(new_event["start"].year, new_event["start"].month, new_event["start"].day, new_event["start"].hour, new_event["start"].minute, new_event["start"].second)
+            new_event["end"] = datetime.datetime(new_event["end"].year, new_event["end"].month, new_event["end"].day, new_event["end"].hour, new_event["end"].minute, new_event["end"].second)
+
             #all day events
             if (new_event["start"].hour == 0 and new_event["start"].minute == 0
             and new_event["end"].hour == 0 and new_event["end"].minute == 0):
@@ -138,8 +149,8 @@ def main():
                     new_event["end"] = datetime.date(new_event["end"].year, new_event["end"].month, new_event["end"].day)
             else:
                 # datetime1, datetime1
-                time_delta = (new_event["start"] - new_event["end"]).minutes
-                if (new_event["start"] == new_event["end"] or time_delta < 15):
+                delta_minutes = (new_event["end"] - new_event["start"]).seconds / 60
+                if (new_event["start"] == new_event["end"] or delta_minutes < 15):
                     new_event["end"] = None
                 # datetime1, datetime2
 
@@ -155,7 +166,7 @@ def main():
             print("Google ==> " +
                   str(new_event["calendar"] + " | "+str(new_event["title"])))
     google_events_ids = [x['id'] for x in google_events]
-    #print("Google events amount:" + str(len(google_events_ids)))
+    print("Google events amount:" + str(len(google_events_ids)))
 
     # Call the Notion API
     # ====================================================================================================
@@ -163,19 +174,23 @@ def main():
     cv = client.get_collection_view(notion_table)
 
     # Run a "filtered" query (inspect network tab in browser for examples, on queryCollection calls)
-    filter_params = {
-        "filters": [{
-            "filter": {
-                "value": {
-                    "type": "exact",
-                    "value": {"type": "date", "start_date": timeRange.strftime("%Y-%m-%d")}
+    
+    filter_params = ''
+    if days_range > 0:
+        filter_params = {
+            "filters": [{
+                "filter": {
+                    "value": {
+                        "type": "exact",
+                        "value": {"type": "date", "start_date": timeRange.strftime("%Y-%m-%d")}
+                    },
+                    "operator": "date_is_on_or_after"
                 },
-                "operator": "date_is_on_or_after"
-            },
-            "property": notion_date_prop
-        }],
-        "operator": "and"
-    }
+                "property": notion_date_prop
+            }],
+            "operator": "and"
+        }
+
     # get rows from notion table
     try:
         notion_res = cv.build_query(filter=filter_params).execute()
@@ -196,12 +211,14 @@ def main():
             new_event["end"] = getattr(getattr(nevent, notion_date_prop), "end")
 
             # date/datetime, None
-            if not new_event["end"]:
+
+
+            if new_event["end"] == None:
                 # date1, None
                 if isinstance(new_event["start"], datetime.date):
                     a = 'a'
                 # datetime1, None
-                if isinstance(new_event["start"], datetime.datetime):
+                else:
                     b = 'b'
 
             # date/datetime, date/datetime
@@ -213,10 +230,10 @@ def main():
                         new_event["end"] = None
                     # date1, date2
                 # datetime, datetime
-                if isinstance(new_event["start"], datetime.datetime):
+                else:
                     # datetime1, datetime1
-                    time_delta = (new_event["start"] - new_event["end"]).minutes
-                    if (new_event["start"] == new_event["end"] or time_delta < 15):
+                    delta_minutes = (new_event["end"] - new_event["start"]).seconds / 60
+                    if (new_event["start"] == new_event["end"] or delta_minutes < 15):
                         new_event["end"] = None
                     # datetime1, datetime2
                     
@@ -232,7 +249,7 @@ def main():
         print("Notion ==> " +
               str(new_event["calendar"]) + " | "+str(new_event["title"]))
     notion_events_ids = [x["id"] for x in notion_events]
-    #print("Notion events amount:" + str(len(notion_events_ids)))
+    print("Notion events amount:" + str(len(notion_events_ids)))
 
     # SORT DATA
     # ====================================================================================================
@@ -266,15 +283,15 @@ def main():
                     field = "start"
                     if(gev[field] != nev[field]):
                         n_update = True
-                        print(f"N UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                        print(f"N UPDATE [{field}]: {nev['start']} -> {gev['start']}")
                     field = "end"
                     if(gev[field] != nev[field]):
                         n_update = True
-                        print(f"N UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                        print(f"N UPDATE [{field}]: {nev['end']} -> {gev['end']}")
                     field = "calendar" 
                     if(gev[field] != nev[field]):
                         n_update = True
-                        print(f"N UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                        print(f"N UPDATE [{field}]: {nev['calendar']} -> {gev['calendar']}")
 
                     if n_update:
                         update_in_notion.append(gev)
@@ -288,28 +305,22 @@ def main():
                     field = "start"
                     if(gev[field] != nev[field]):
                         g_update = True
-                        print(f"G UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                        print(f"G UPDATE [{field}]: {nev['start']} -> {gev['start']}")
                     field = "end"
                     if(gev[field] != nev[field]):
                         g_update = True
-                        print(f"G UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                        print(f"G UPDATE [{field}]: {nev['end']} -> {gev['end']}")
                     field = "calendar" 
                     if(gev[field] != nev[field]):
                         g_update = True
-                        print(f"G UPDATE [{field}]: {nev['title']} -> {gev['title']}")
+                        print(f"G UPDATE [{field}]: {nev['calendar']} -> {gev['calendar']}")
 
                     if g_update:
                         update_in_google.append(gev)
 
-                if ((gev["updated"] < nev["updated"]) 
-                and (gev["title"] != nev["title"] 
-                or gev["start"] != nev["start"]
-                or gev["end"] != nev["end"])
-                or gev["calendar"] != nev["calendar"]): 
-                    update_in_google.append(nev)
-
                 if (gev["updated"] > nev["updated"] and gev["deleted"] == "canceled"):
                     delete_from_notion.append(gev)
+
                 if (gev["updated"] < nev["updated"] and (nev["deleted"] == True or nev["deleted"] != None)):
                     delete_from_google.append(nev)
         
@@ -317,35 +328,33 @@ def main():
     print("Update in Notion: " + str(len(update_in_notion)))
     print("Delete from Google: " + str(len(delete_from_google)))
     print("Delete from Notion: " + str(len(delete_from_notion)))
+
     # SYNC DATA
     # ====================================================================================================
 
-
     #TODO: How to find in this NotionCollection
     
-    for event in add_to_notion:
-        identifier = notion_add_event(cv, service, event,
-                              notion_date_prop, notion_cal_prop)
-        print(identifier)
+    # for event in add_to_notion:
+    #     identifier = notion_add_event(cv, service, event)
+    #     print(identifier)
 
-    for event in add_to_google:
-        identifier = google_add_event(service, event)
+    # for event in add_to_google:
+    #     identifier = google_add_event(service, event)
 
-    for nevupd in update_in_notion:
-            for nev in notion_res:
-                if nev.id.replace("-","000") == nevupd["id"]:
-                    notion_update_event(nev, nevupd, notion_date_prop, notion_cal_prop)
+    # for nevupd in update_in_notion:
+    #         for nev in notion_res:
+    #             if nev.id.replace("-","000") == nevupd["id"]:
+    #                 notion_update_event(nev, nevupd, notion_date_prop, notion_cal_prop)
 
-    for gevupd in update_in_google:
-            for gev in google_events:
-                if gev["id"] == gevupd["id"]:
-                    google_update_event(service, gev, gevupd)
-
+    # for gevupd in update_in_google:
+    #         for gev in google_events:
+    #             if gev["id"] == gevupd["id"]:
+    #                 google_update_event(service, gev, gevupd)
 
     print("Script reached the end")
 
 
-def notion_add_event(notion_client, google_client, event, _date_prop, _cal_prop):
+def notion_add_event(notion_client, google_client, event):
 
     n_date = None
 
@@ -355,8 +364,8 @@ def notion_add_event(notion_client, google_client, event, _date_prop, _cal_prop)
     # datetime - datetime - regular
 
     # Google All day check
-    if (isinstance(event["start"],datetime.datetime)) and (event["start"].hour == 0 and event["start"].minute == 0 and event["start"].second == 0 and event["end"].hour == 0 and
-            event["end"].minute == 0 and event["end"].second == 0):
+    if (isinstance(event["start"],datetime.datetime)) and (event["start"].hour == 0 and event["start"].minute == 0 
+                                                      and event["end"].hour == 0 and event["end"].minute == 0):
         if (event["end"] - event["start"]).days > 1:
             # Many days event
             n_date = NotionDate(event["start"].date())
@@ -373,8 +382,8 @@ def notion_add_event(notion_client, google_client, event, _date_prop, _cal_prop)
     try:
         notion_event = notion_client.collection.add_row()
         notion_event.name = event["title"]
-        setattr(notion_event, _date_prop, n_date)
-        setattr(notion_event, _cal_prop, event["calendar"])
+        setattr(notion_event, notion_date_prop, n_date)
+        setattr(notion_event, notion_cal_prop, event["calendar"])
 
         print(
             f"NOTION ADD: {event['calendar']} | {event['title']} - {event['start']} to {event['end']}")
@@ -397,6 +406,7 @@ def notion_add_event(notion_client, google_client, event, _date_prop, _cal_prop)
         calendarId=google_calendar_ids[event["calendar"]], body=event_body).execute()
 
     return notion_event
+
 def google_add_event(google_client, _event):
    
     #1 date - x - All day event -> start 0 0 start+1d 0 0
@@ -467,7 +477,7 @@ def google_add_event(google_client, _event):
     
     return event
 
-def notion_update_event(notion_event, event, _date_prop, _cal_prop):
+def notion_update_event(notion_event, event):
     n_date = None
 
     # date - x - All day event
@@ -494,12 +504,12 @@ def notion_update_event(notion_event, event, _date_prop, _cal_prop):
         if (notion_event.name != event["title"]):
             notion_event.name = event["title"]
             print(f"TITLE UPD: {notion_event.name} -> {event['title']}")
-        if (getattr(notion_event, _date_prop) != n_date):
-            setattr(notion_event, _date_prop, n_date)
-            print(f"DATE UPD: {getattr(notion_event, _date_prop)} -> {n_date}")
-        if(getattr(notion_event, _cal_prop) != event["calendar"]):
-            setattr(notion_event, _cal_prop, event["calendar"])
-            print(f"DATE UPD: {getattr(notion_event, _date_prop)} -> {n_date}")
+        if (getattr(notion_event, notion_date_prop) != n_date):
+            setattr(notion_event, notion_date_prop, n_date)
+            print(f"DATE UPD: {getattr(notion_event, notion_date_prop)} -> {n_date}")
+        if(getattr(notion_event, notion_cal_prop) != event["calendar"]):
+            setattr(notion_event, notion_cal_prop, event["calendar"])
+            print(f"DATE UPD: {getattr(notion_event, notion_date_prop)} -> {n_date}")
         print(
             f"NOTION ADD: {event['calendar']} | {event['title']} - {event['start']} to {event['end']}")
 
