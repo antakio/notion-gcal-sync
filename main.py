@@ -10,6 +10,8 @@ from google.auth.transport.requests import Request
 from notion.client import NotionClient
 from notion.collection import NotionDate
 
+import config as CONFIG
+
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
@@ -70,19 +72,14 @@ def main():
     global notion_cal_prop
     global notion_del_prop
 
-    days_range = 0  # Number of days, from events would be loaded (0 - all)
-    google_calendar_ids = {
-        "Work": "38ubqlt9barnad61d81cpinj4s@group.calendar.google.com",
-        "Family": "9js0btqfg3vt88cm62cafqfhgs@group.calendar.google.com",
-        #   "NameOfCalendar" : "calendar ID"
-    }
-    MULTICALMODE = (len(google_calendar_ids) > 1)
-    notion_token_v2 = "f2282d5d6a0776908ed44507033636e34bb871450db8af9d4aaddd5d622238524983c78f77dc09178e9e900bc3de3502f40bdefa78a850321e39b3e45a09ca1107b3bbd9a624bf059bd19da18cd9"
-    notion_table = "https://www.notion.so/andreirbkn/e51e40bbc4a740dea8b31b9935a0455c?v=f4ba657e5a074e9aa5f21e1fc664f0a9"
-    notion_date_prop = "Target Date"
-    notion_cal_prop = "Calendar"
-    notion_del_prop = "Archive"
-    timezone = "Asia/Yekaterinburg"
+    days_range = CONFIG.days_range # Number of days, from events would be loaded (0 - all)
+    google_calendar_ids = CONFIG.google_calendar_ids
+    notion_token_v2 = CONFIG.notion_token_v2
+    notion_table = CONFIG.notion_table
+    notion_date_prop = CONFIG.notion_date_prop
+    notion_cal_prop = CONFIG.notion_cal_prop
+    notion_del_prop = CONFIG.notion_del_prop
+    timezone = CONFIG.timezone
 
     if os.path.exists("token.pickle"):
         with open("token.pickle", "rb") as token:
@@ -134,19 +131,21 @@ def main():
             #all day events
             if (new_event["start"].hour == 0 and new_event["start"].minute == 0
             and new_event["end"].hour == 0 and new_event["end"].minute == 0):
+                days_delta = (new_event["end"] - new_event["start"]).days
+                if(days_delta > 1):
+                    new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                    new_event["end"] = datetime.date(new_event["end"].year, new_event["end"].month, new_event["end"].day)
+                # date1, date1 + 1
+                if(days_delta == 1):
+                    new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                    new_event["end"] = None
                 # date1, date1
                 if(new_event["start"] == new_event["end"]):
                     new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
                     new_event["end"] = None
-                # date1, date1 + 1
-                days_delta = (new_event["end"] - new_event["start"]).days
-                if(days_delta == 1):
-                    new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
-                    new_event["end"] = None
+
                 # date1, date2
-                if(days_delta > 1):
-                    new_event["start"] = datetime.date(new_event["start"].year, new_event["start"].month, new_event["start"].day)
-                    new_event["end"] = datetime.date(new_event["end"].year, new_event["end"].month, new_event["end"].day)
+
             else:
                 # datetime1, datetime1
                 delta_minutes = (new_event["end"] - new_event["start"]).seconds / 60
@@ -203,8 +202,9 @@ def main():
         new_event["title"] = nevent.name
 
         # new_event Target_Date  = nevent Target Date
-        if not hasattr(nevent, notion_date_prop):
-            new_event[notion_date_prop] = None
+        if getattr(nevent, notion_date_prop) == None:
+            new_event["start"] = None
+            new_event["end"] = None
         else:
             new_event["start"] = getattr(getattr(nevent, notion_date_prop), "start")
             new_event["end"] = getattr(getattr(nevent, notion_date_prop), "end")
@@ -242,7 +242,12 @@ def main():
             new_event["calendar"] = getattr(nevent, notion_cal_prop)
 
         new_event["updated"] = nevent.Last_Edited
-        new_event["deleted"] = getattr(nevent, notion_del_prop)
+        deleted = getattr(nevent, notion_del_prop)
+
+        if deleted != None or deleted == True:
+            new_event["deleted"] = True
+        else:
+            new_event["deleted"] = True
 
         notion_events.append(new_event)
         #print("Notion ==> " + str(new_event["calendar"]) + " | "+str(new_event["title"]))
@@ -261,18 +266,18 @@ def main():
     delete_from_google = []
 
     for nev in notion_events:
-        if nev["id"] not in google_events_ids and nev["start"] != None and nev["calendar"] != None:
+        if nev["id"] not in google_events_ids and nev["start"] != None and nev["calendar"] != None and not nev["deleted"]:
             add_to_google.append(nev)
     #print("Add to Google: " + str(len(add_to_google)))
     for gev in google_events:
-        if gev["id"] not in notion_events_ids:
+        if gev["id"] not in notion_events_ids and not gev["deleted"]:
             add_to_notion.append(gev)
     #print("Add to Notion: " + str(len(add_to_notion)))
     for nev in notion_events:
         for gev in google_events:
             if (gev["id"] == nev["id"]):
                 # later = larger
-                if(gev["updated"] > nev["updated"]):
+                if(gev["updated"] > nev["updated"] and not gev["deleted"]):
                     n_update = False
                     field = "title"
                     if(gev[field] != nev[field]):
@@ -290,11 +295,10 @@ def main():
                     if(gev[field] != nev[field]):
                         n_update = True
                         print(f"N UPDATE [{field}]: {nev['calendar']} -> {gev['calendar']}")
-
                     if n_update:
                         update_in_notion.append(gev)
 
-                if(gev["updated"] < nev["updated"]):
+                if(gev["updated"] < nev["updated"] and not nev["deleted"]):
                     g_update = False
                     field = "title"
                     if(gev[field] != nev[field]):
@@ -316,10 +320,12 @@ def main():
                     if g_update:
                         update_in_google.append(gev)
 
-                if (gev["updated"] > nev["updated"] and gev["deleted"] == "canceled"):
+                if (gev["updated"] > nev["updated"] and gev["deleted"] == True):
+                    print(f"N DELETE [{nev['title']}] {nev['id']}")
                     delete_from_notion.append(gev)
 
-                if (gev["updated"] < nev["updated"] and (nev["deleted"] == True or nev["deleted"] != None)):
+                if (gev["updated"] < nev["updated"] and nev["deleted"] == True):
+                    print(f"G DELETE [{gev['title']}] {gev['id']}")
                     delete_from_google.append(nev)
         
     # print("Update in Google: " + str(len(update_in_google)))
@@ -348,6 +354,15 @@ def main():
             for gev in google_events:
                 if gev["id"] == gevupd["id"]:
                     google_update_event(service, gev, gevupd)
+
+    for gevdel in delete_from_google:
+        google_delete_event(service, gevdel)
+
+    for nevdel in delete_from_notion:
+        for nev in notion_res:
+            if nev.id.replace("-","000") == nevupd["id"]:
+                notion_delete_event(nev)
+
 
     #print("Script reached the end")
 
@@ -399,13 +414,13 @@ def google_add_event(google_client, _event):
     if _event["end"] == None:
         # 1
         if (isinstance(_event["start"],datetime.date)):
-            start = datetime.datetime(_event["start"].year,_event["start"].month,_event["start"].day)
+            start = datetime.date(_event["start"].year,_event["start"].month,_event["start"].day)
             end = (start + datetime.timedelta(days=1))
             key = "date"
         # 3
         if (isinstance(_event["start"],datetime.datetime)):
             start = _event["start"]
-            end = _event["end"]
+            end = _event["start"] + datetime.timedelta(minutes=15)
             key = "dateTime"
     # 2 4
     else:
@@ -420,8 +435,8 @@ def google_add_event(google_client, _event):
             end = _event["start"]
             key = "dateTime"
 
-    start = str(start).replace(" ", "T") + '.000Z'
-    end = str(end).replace(" ", "T") + '.000Z'
+    start = str(start).replace(" ", "T")
+    end = str(end).replace(" ", "T")
 
     event_body = {
             "end": {
@@ -469,6 +484,7 @@ def notion_update_event(notion_event, event):
         return None
 
     return notion_event
+
 def google_update_event(google_client, gevent, _event):
 
     #1 date - x - All day event -> start 0 0 start+1d 0 0
@@ -536,6 +552,26 @@ def google_update_event(google_client, gevent, _event):
             return None
     
     return event
+
+
+def google_delete_event(google_client, _event):
+
+    try:
+        google_client.events().delete(calendarId=google_calendar_ids[_event["calendar"]],
+                                    eventId=_event["id"]).execute()
+    except Exception as e:
+        print(e)
+        return False
+    return True
+
+def notion_delete_event(nevent):
+
+    try:
+        setattr(nevent, notion_del_prop, "Deleted by google")
+    except Exception as e:
+        print(e)
+        return False
+    return True
 
 
 if __name__ == "__main__":
