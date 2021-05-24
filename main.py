@@ -71,8 +71,7 @@ def main():
     timezone = CONFIG.timezone
     debug = False
 
-    last_sync = datetime.datetime.now() - datetime.timedelta(minutes=10) - \
-        datetime.timedelta(hours=5)
+    last_sync = datetime.datetime.now() - datetime.timedelta(minutes=10) - datetime.timedelta(hours=5)
 
     while(not False):
         creds = None
@@ -155,11 +154,8 @@ def main():
 
             notion_events = []
             for nevent in notion_res:
-
                 new_event = notion_ev_format(nevent=nevent)
-
-                if (new_event["updated"] > last_sync):
-                    notion_events.append(new_event)
+                notion_events.append(new_event)
 
             notion_events_ids = [x["id"] for x in notion_events]
             if debug:
@@ -292,7 +288,9 @@ def main():
                             print(f"[{datetime.datetime.now()}] " +
                                   f"Notion ===> {nevdel['title']} | Deleted")
 
-            last_sync = datetime.datetime.utcnow()
+
+
+            last_sync = datetime.datetime.now() - datetime.timedelta(minutes=10) - datetime.timedelta(hours=5)
             time.sleep(70)
 
 
