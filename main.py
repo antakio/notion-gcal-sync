@@ -184,7 +184,7 @@ def main():
                 if(gev == None):
                     if (nev["start"] != None and nev["calendar"] != None and not nev["deleted"]):
                         print(f"[{datetime.datetime.now()}] " +
-                              f"G MISSING EVENT FOUNDED - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
+                              f"GOOGLE MISSING EVENT - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
                         add_to_google.append(nev)
                 else:
                     gev = google_ev_format(gev)
@@ -193,14 +193,9 @@ def main():
                             if(nev["updated"] > gev["updated"]):
                                 update_in_google.append(nev)
                     else:
-                        if (gev["deleted"] == True and nev["deleted"] == False):
-                            print(f"[{datetime.datetime.now()}] " +
-                                  f"N EVENT TO DELETE FOUNDED - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
-                            delete_from_notion.append(gev)
-
                         if (nev["deleted"] == True and gev["deleted"] == False):
                             print(f"[{datetime.datetime.now()}] " +
-                                  f"G EVENT TO DELETE FOUNDED - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
+                                  f"GOOGLE EVENT TO DELETE - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
                             delete_from_google.append(nev)
 
             for gev in google_events:
@@ -209,7 +204,7 @@ def main():
                 if nev is None:
                     if (gev["start"] != None and gev["calendar"] != None and not gev["deleted"]):
                         print(f"[{datetime.datetime.now()}] " +
-                              f"N MISSING EVENT FOUNDED - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
+                              f"NOTION MISSING EVENT - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
                         add_to_notion.append(gev)
                 else:
                     nev = notion_ev_format(nev)
@@ -220,13 +215,8 @@ def main():
                     else:
                         if (gev["deleted"] == True and nev["deleted"] == False):
                             print(f"[{datetime.datetime.now()}] " +
-                                  f"N EVENT TO DELETE FOUNDED - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
+                                  f"NOTION EVENT TO DELETE - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
                             delete_from_notion.append(gev)
-
-                        if (nev["deleted"] == True and gev["deleted"] == False):
-                            print(f"[{datetime.datetime.now()}] " +
-                                  f"G EVENT TO DELETE FOUNDED - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
-                            delete_from_google.append(nev)
 
             if debug:
                 print(f"[{datetime.datetime.now()}] " +
@@ -250,43 +240,48 @@ def main():
             for event in add_to_notion:
                 new_event = notion_add_event(cv, service, event)
                 if new_event:
+                    new_event = notion_ev_format(new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"Notion ===> {new_event.title} | ADDED")
+                        f"ADDED | NOTION {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
 
             for event in add_to_google:
                 new_event = google_add_event(service, event)
                 if new_event:
+                    new_event = google_ev_format(new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"Google ===> {new_event['summary']} | ADDED")
+                        f"ADDED | GOOGLE {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
 
             for nevupd in update_in_notion:
                 nev = notion_ev_search(client, nevupd)
                 new_event = notion_update_event(nev, nevupd)
                 if new_event:
+                    new_event = notion_ev_format(new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"Notion ===> {new_event.title} | Updated")
+                        f"UPDATED | NOTION {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
 
             for gevupd in update_in_google:
                 gev = google_ev_search(service, gevupd)
                 gev = google_ev_format(gev)
                 new_event = google_update_event(service, gev, gevupd)
                 if new_event:
+                    new_event = google_ev_format(new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"Google ===> {new_event['summary']} | Updated")
+                        f"UPDATED | GOOGLE {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
+
 
             for gevdel in delete_from_google:
                 res = google_delete_event(service, gevdel)
                 if res:
+                    res = google_ev_format(res)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"Google ===> {gevdel['title']} | Deleted")
+                        f"DELETED | GOOGLE {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
 
             for nevdel in delete_from_notion:
-                for nev in notion_res:
-                    if nev.id.replace("-", "00a00") == nevdel["id"]:
-                        res = notion_delete_event(nev)
-                        if res:
-                            print(f"[{datetime.datetime.now()}] " +
-                                  f"Notion ===> {nevdel['title']} | Deleted")
+                res = notion_delete_event(client,nevdel)
+                if res:
+                    res = notion_ev_format(res)
+                    print(f"[{datetime.datetime.now()}] " +
+                        f"DELETED | NOTION {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
 
 
 
@@ -417,22 +412,22 @@ def compare_evs(nev, gev):
     field = "title"
     if(gev[field] != nev[field]):
         print(f"[{datetime.datetime.now()}] " +
-              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] {nev[field]} -> {gev[field]}")
+              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] N {nev[field]} -> G {gev[field]}")
         ev_update = True
     field = "start"
     if(gev[field] != nev[field]):
         print(f"[{datetime.datetime.now()}] " +
-              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] {nev[field]} -> {gev[field]}")
+              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] N {nev[field]} -> G {gev[field]}")
         ev_update = True
     field = "end"
     if(gev[field] != nev[field]):
         print(f"[{datetime.datetime.now()}] " +
-              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] {nev[field]} -> {gev[field]}")
+              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] N {nev[field]} -> G {gev[field]}")
         ev_update = True
     field = "calendar"
     if(gev[field] != nev[field]):
         print(f"[{datetime.datetime.now()}] " +
-              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] {nev[field]} -> {gev[field]}")
+              f"CHANGES FOUNDED - [{gev['title']}] | [{field}] N {nev[field]} -> G {gev[field]}")
         ev_update = True
     return ev_update
 
@@ -448,8 +443,7 @@ def notion_add_event(notion_client, google_client, event):
         setattr(notion_event, notion_date_prop, n_date)
         setattr(notion_event, notion_cal_prop, event["calendar"])
 
-        print(f"[{datetime.datetime.now()}] " +
-              f"N ADD: {event['calendar']} | {event['title']} - {event['start']} to {event['end']}")
+        print(f"[{datetime.datetime.now()}] N ADD DONE {event['title']}")
 
     except Exception as e:
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
@@ -469,8 +463,9 @@ def notion_add_event(notion_client, google_client, event):
                                       eventId=event["id"]).execute()
         event_body_new = google_client.events().insert(
             calendarId=google_calendar_ids[event["calendar"]], body=event_body).execute()
+        print(f"[{datetime.datetime.now()}] N ADD (G ID) DONE {event['title']}")
     except Exception as e:
-        notion_delete_event(notion_event)
+        #notion_delete_event(notion_event)
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return None
 
@@ -565,6 +560,7 @@ def google_add_event(google_client, _event):
             calendarId=google_calendar_ids[_event["calendar"]], body=event_body).execute()
         event = google_client.events().update(calendarId=google_calendar_ids[_event["calendar"]],
                                               eventId=_event["id"], body=event).execute()
+        print(f"[{datetime.datetime.now()}] G ADD DONE {_event['title']}")
     except Exception as e:
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return None
@@ -587,7 +583,7 @@ def notion_update_event(notion_event, event):
         notion_event.name = event["title"]
         setattr(notion_event, notion_date_prop, n_date)
         setattr(notion_event, notion_cal_prop, event["calendar"])
-
+        print(f"[{datetime.datetime.now()}] N UPDATE DONE {event['title']}")
     except Exception as e:
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return None
@@ -653,6 +649,7 @@ def google_update_event(google_client, gevent, _event):
                 calendarId=google_calendar_ids[gevent["calendar"]], eventId=gevent["id"]).execute()
             event = google_client.events().insert(
                 calendarId=google_calendar_ids[_event["calendar"]], body=event_body).execute()
+            print(f"[{datetime.datetime.now()}] G UPDATE DONE {_event['title']}")
         except Exception as e:
             print(
                 f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
@@ -661,6 +658,7 @@ def google_update_event(google_client, gevent, _event):
         try:
             event = google_client.events().update(calendarId=google_calendar_ids[gevent["calendar"]],
                                                   eventId=_event["id"], body=event_body).execute()
+            print(f"[{datetime.datetime.now()}] G UPDATE DONE {_event['title']}")
         except Exception as e:
             print(
                 f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
@@ -682,15 +680,17 @@ def google_delete_event(google_client, _event):
     return True
 
 
-def notion_delete_event(nevent):
+def notion_delete_event(client,nevent):
 
     try:
-        if getattr(nevent, notion_del_prop) == '':
-            setattr(nevent, notion_del_prop, "Deleted by google")
-        if getattr(nevent, notion_del_prop) == False:
-            setattr(nevent, notion_del_prop, True)
+        nev = notion_ev_search(client, nevent)
+
+        if getattr(nev, notion_del_prop) == '':
+            setattr(nev, notion_del_prop, "Deleted by google")
+        if getattr(nev, notion_del_prop) == False:
+            setattr(nev, notion_del_prop, True)
         print(f"[{datetime.datetime.now()}] " +
-              f"N DELETE DONE {nevent.title}")
+              f"N DELETE DONE {nev.title}")
 
     except Exception as e:
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
