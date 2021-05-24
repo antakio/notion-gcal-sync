@@ -69,7 +69,7 @@ def main():
     notion_cal_prop = CONFIG.notion_cal_prop
     notion_del_prop = CONFIG.notion_del_prop
     timezone = CONFIG.timezone
-    debug = False
+    debug = True
 
     last_sync = datetime.datetime.now() - datetime.timedelta(minutes=10) - datetime.timedelta(hours=5)
 
@@ -155,7 +155,9 @@ def main():
             notion_events = []
             for nevent in notion_res:
                 new_event = notion_ev_format(nevent=nevent)
-                notion_events.append(new_event)
+                if (new_event["updated"] > last_sync):
+                    notion_events.append(new_event)
+                
 
             notion_events_ids = [x["id"] for x in notion_events]
             if debug:
@@ -174,7 +176,10 @@ def main():
             delete_from_google = []
 
             for nev in notion_events:
-                gev = google_ev_search(service, nev)
+                if(not nev['deleted']):
+                    gev = google_ev_search(service, nev)
+                else: 
+                    gev = None
 
                 if(gev == None):
                     if (nev["start"] != None and nev["calendar"] != None and not nev["deleted"]):
@@ -185,9 +190,7 @@ def main():
                     gev = google_ev_format(gev)
                     if (not gev["deleted"] and not nev["deleted"]):
                         if compare_evs(nev, gev):
-                            if(gev["updated"] > nev["updated"]):
-                                update_in_notion.append(gev)
-                            else:
+                            if(nev["updated"] > gev["updated"]):
                                 update_in_google.append(nev)
                     else:
                         if (gev["deleted"] == True and nev["deleted"] == False):
@@ -214,8 +217,6 @@ def main():
                         if compare_evs(nev, gev):
                             if(gev["updated"] > nev["updated"]):
                                 update_in_notion.append(gev)
-                            else:
-                                update_in_google.append(nev)
                     else:
                         if (gev["deleted"] == True and nev["deleted"] == False):
                             print(f"[{datetime.datetime.now()}] " +
@@ -260,7 +261,6 @@ def main():
 
             for nevupd in update_in_notion:
                 nev = notion_ev_search(client, nevupd)
-                nev = notion_ev_format(nev)
                 new_event = notion_update_event(nev, nevupd)
                 if new_event:
                     print(f"[{datetime.datetime.now()}] " +
@@ -479,6 +479,14 @@ def notion_add_event(notion_client, google_client, event):
 
 def google_ev_search(google_client, _event):
     result = None
+
+    try:
+        result = google_client.events().get(
+            calendarId=google_calendar_ids[_event['calendar']], eventId=_event['id']).execute()
+        if result != None:
+            return result
+    except Exception as e:
+        result = None
 
     for calendar in google_calendar_ids.values():
         try:
