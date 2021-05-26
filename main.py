@@ -69,7 +69,7 @@ def main():
     notion_cal_prop = CONFIG.notion_cal_prop
     notion_del_prop = CONFIG.notion_del_prop
     timezone = CONFIG.timezone
-    debug = False
+    debug = True
 
     last_sync = datetime.datetime.now() - datetime.timedelta(minutes=10) - datetime.timedelta(hours=5)
 
@@ -174,6 +174,8 @@ def main():
             delete_from_notion = []
             # nev.id == gev.id and nev.stat == canceled and gev.upd < nev.upd
             delete_from_google = []
+            restore_from_google = []
+            restore_from_notion = []
 
             for nev in notion_events:
                 if(not nev['deleted']):
@@ -193,10 +195,15 @@ def main():
                             if(nev["updated"] > gev["updated"]):
                                 update_in_google.append(nev)
                     else:
-                        if (nev["deleted"] == True and gev["deleted"] == False):
+                        if (nev["deleted"] == True and gev["deleted"] == False and nev["updated"] > gev["updated"]):
                             print(f"[{datetime.datetime.now()}] " +
                                   f"GOOGLE EVENT TO DELETE - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
                             delete_from_google.append(nev)
+                        if (nev["deleted"] == False and gev["deleted"] == True) and (nev["updated"] > gev["updated"]):
+                            print(f"[{datetime.datetime.now()}] " +
+                                  f"GOOGLE EVENT TO RESTORE - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
+                            restore_from_google.append(nev)
+
 
             for gev in google_events:
                 nev = notion_ev_search(client, gev)
@@ -213,10 +220,14 @@ def main():
                             if(gev["updated"] > nev["updated"]):
                                 update_in_notion.append(gev)
                     else:
-                        if (gev["deleted"] == True and nev["deleted"] == False):
+                        if (nev["deleted"] == False and gev["deleted"] == True and gev["updated"] > nev["updated"]):
                             print(f"[{datetime.datetime.now()}] " +
                                   f"NOTION EVENT TO DELETE - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
                             delete_from_notion.append(gev)
+                        if (nev["deleted"] == True and gev["deleted"] == False) and (gev["updated"] > nev["updated"]):
+                            print(f"[{datetime.datetime.now()}] " +
+                                  f"NOTION EVENT TO RESTORE - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
+                            restore_from_notion.append(gev)
 
             if debug:
                 print(f"[{datetime.datetime.now()}] " +
@@ -272,15 +283,28 @@ def main():
             for gevdel in delete_from_google:
                 res = google_delete_event(service, gevdel)
                 if res:
-                    res = google_ev_format(res)
                     print(f"[{datetime.datetime.now()}] " +
-                        f"DELETED | GOOGLE {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
+                        f"DELETED | GOOGLE {gevdel['calendar']} | [{gevdel['title']}] | {gevdel['start']} -> {gevdel['end']}")
 
             for nevdel in delete_from_notion:
                 res = notion_delete_event(client,nevdel)
                 if res:
                     print(f"[{datetime.datetime.now()}] " +
                         f"DELETED | NOTION {nevdel['calendar']} | [{nevdel['title']}] | {nevdel['start']} -> {nevdel['end']}")
+
+            for gevres in restore_from_google:
+                res = google_restore_event(service, gevres)
+                if res:
+                    res = google_ev_format(res)
+                    print(f"[{datetime.datetime.now()}] " +
+                        f"RESTORED | GOOGLE {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
+
+            for nevres in restore_from_notion:
+                res = notion_restore_event(service, nevres)
+                if res:
+                    res = notion_ev_format(res)
+                    print(f"[{datetime.datetime.now()}] " +
+                        f"RESTORED | NOTION {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
 
 
 
@@ -396,8 +420,10 @@ def google_ev_format(gevent):
         # datetime1, datetime2
 
     new_event["updated"] = parse(gevent["updated"].split('.')[0])
-    new_event["calendar"] = gevent['organizer']['displayName']
-
+    if "organizer" in gevent:
+        new_event["calendar"] = gevent['organizer']['displayName']
+    else:
+         new_event["calendar"] = ''
     if gevent["status"] == "cancelled":
         new_event["deleted"] = True
     else:
@@ -476,7 +502,7 @@ def google_ev_search(google_client, _event):
 
     try:
         result = google_client.events().get(
-            calendarId=google_calendar_ids[_event['calendar']], eventId=_event['id']).execute()
+            calendarId=google_calendar_ids[_event['calendar']], eventId=_event['id'],showdeleted=True).execute()
         if result != None:
             return result
     except Exception as e:
@@ -666,10 +692,73 @@ def google_update_event(google_client, gevent, _event):
     return event
 
 
-def google_delete_event(google_client, _event):
+def google_restore_event(google_client, _event):
+
+   # 1 date - x - All day event -> start 0 0 start+1d 0 0
+    # 2 date - date - Many days event -> start end
+    # 3 datetime - x - Not impossible with google events -> start start
+    # 4 datetime - datetime - regular -> start start
+
+    start = ""
+    end = ""
+    key = ""
+    # 1 3
+    if _event["end"] == None:
+        # 1
+        if (isinstance(_event["start"], datetime.date)):
+            start = datetime.date(
+                _event["start"].year, _event["start"].month, _event["start"].day)
+            end = (start + datetime.timedelta(days=1))
+            key = "date"
+        # 3
+        if (isinstance(_event["start"], datetime.datetime)):
+            start = _event["start"]
+            end = _event["start"] + datetime.timedelta(minutes=15)
+            key = "dateTime"
+    # 2 4
+    else:
+        # 2
+        if (isinstance(_event["start"], datetime.date)):
+            start = _event["start"]
+            end = _event["end"]
+            key = "date"
+        # 4
+        if (isinstance(_event["start"], datetime.datetime)):
+            start = _event["start"]
+            end = _event["end"]
+            key = "dateTime"
+
+    start = str(start).replace(" ", "T")
+    end = str(end).replace(" ", "T")
+
+    event_body = {
+        "end": {
+            key: end,
+            "timeZone": timezone
+        },
+        "start": {
+            key: start,
+            "timeZone": timezone
+        },
+        "summary": _event["title"],
+        "id": _event["id"],
+        "status" : "confirmed"
+    }
 
     try:
-        google_client.events().delete(calendarId=google_calendar_ids[_event["calendar"]],
+        event = google_client.events().update(calendarId=google_calendar_ids[_event["calendar"]],
+                                                eventId=_event["id"], body=event_body).execute()
+        print(f"[{datetime.datetime.now()}] G RESTORE DONE {_event['title']}")
+    except Exception as e:
+        print(
+            f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
+        return None
+
+    return event
+
+def google_delete_event(google_client, _event):
+    try:
+        event = google_client.events().delete(calendarId=google_calendar_ids[_event["calendar"]],
                                       eventId=_event["id"]).execute()
         print(f"[{datetime.datetime.now()}] " +
               f"G DELETE DONE {_event['title']}")
@@ -677,6 +766,7 @@ def google_delete_event(google_client, _event):
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return False
     return True
+
 
 
 def notion_delete_event(client,nevent):
@@ -695,6 +785,18 @@ def notion_delete_event(client,nevent):
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return False
     return True
+
+def notion_restore_event(event):
+
+    try:
+        setattr(event, notion_del_prop, '')
+        print(f"[{datetime.datetime.now()}] N RESTORE DONE {event['title']}")
+    except Exception as e:
+        print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
+        return None
+
+    return event
+
 
 
 if __name__ == "__main__":
