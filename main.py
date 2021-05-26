@@ -69,7 +69,7 @@ def main():
     notion_cal_prop = CONFIG.notion_cal_prop
     notion_del_prop = CONFIG.notion_del_prop
     timezone = CONFIG.timezone
-    debug = True
+    debug = False
 
     last_sync = datetime.datetime.now() - datetime.timedelta(minutes=10) - datetime.timedelta(hours=5)
 
@@ -279,9 +279,8 @@ def main():
             for nevdel in delete_from_notion:
                 res = notion_delete_event(client,nevdel)
                 if res:
-                    res = notion_ev_format(res)
                     print(f"[{datetime.datetime.now()}] " +
-                        f"DELETED | NOTION {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
+                        f"DELETED | NOTION {nevdel['calendar']} | [{nevdel['title']}] | {nevdel['start']} -> {nevdel['end']}")
 
 
 
