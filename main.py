@@ -242,6 +242,11 @@ def main():
                       "Delete from Google: " + str(len(delete_from_google)))
                 print(f"[{datetime.datetime.now()}] " +
                       "Delete from Notion: " + str(len(delete_from_notion)))
+                print(f"[{datetime.datetime.now()}] " +
+                      "Restore from Google: " + str(len(restore_from_google)))
+                print(f"[{datetime.datetime.now()}] " +
+                      "Restore from Notion: " + str(len(restore_from_notion)))
+
 
             # SYNC DATA
             # ====================================================================================================
@@ -418,6 +423,9 @@ def google_ev_format(gevent):
         if (new_event["start"] == new_event["end"] or delta_minutes <= 15):
             new_event["end"] = None
         # datetime1, datetime2
+
+    new_event["start"] = new_event["start"] + datetime.timedelta(hours=5)
+    new_event["end"] = new_event["end"] + datetime.timedelta(hours=5)
 
     new_event["updated"] = parse(gevent["updated"].split('.')[0])
     if "organizer" in gevent:
