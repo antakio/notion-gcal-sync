@@ -14,7 +14,7 @@ from google.oauth2.credentials import Credentials
 from notion.client import NotionClient
 from notion.collection import NotionDate
 
-import config as CONFIG
+import notion_config as CONFIG
 
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
@@ -59,6 +59,8 @@ def main():
     global notion_date_prop
     global notion_cal_prop
     global notion_del_prop
+    global default_tz
+    global default_cal
 
     # Number of days, from events would be loaded (0 - all)
     google_calendar_ids = {}
@@ -67,9 +69,13 @@ def main():
     notion_date_prop = CONFIG.notion_date_prop
     notion_cal_prop = CONFIG.notion_cal_prop
     notion_del_prop = CONFIG.notion_del_prop
+    default_tz = CONFIG.notion_default_timezone
+    default_cal = CONFIG.google_def_cal
+
     debug = False
 
-    last_sync = convert_datetime_timezone(datetime.datetime.utcnow() - datetime.timedelta(minutes=10), 'UTC', 'UTC')
+    last_sync = convert_datetime_timezone(
+        datetime.datetime.utcnow() - datetime.timedelta(minutes=10), 'UTC', 'UTC')
 
     while(not False):
         creds = None
@@ -108,7 +114,8 @@ def main():
             while True:
                 calendar_list = service.calendarList().list(pageToken=page_token).execute()
                 for calendar_list_entry in calendar_list['items']:
-                    google_calendar_ids[calendar_list_entry['summary']] = calendar_list_entry['id']
+                    google_calendar_ids[calendar_list_entry['summary']
+                                        ] = calendar_list_entry['id']
                 page_token = calendar_list.get('nextPageToken')
                 if not page_token:
                     break
@@ -117,7 +124,8 @@ def main():
             try:
                 for calendar_name, calendar_id in google_calendar_ids.items():
                     events_result = service.events().list(calendarId=calendar_id,
-                                                          updatedMin=((str(last_sync).replace(" ", "T").split('.')[0]) + "Z"),
+                                                          updatedMin=((str(last_sync).replace(
+                                                              " ", "T").split('.')[0]) + "Z"),
                                                           singleEvents=True,
                                                           orderBy="startTime",
                                                           showDeleted=True).execute()
@@ -129,8 +137,9 @@ def main():
             google_events = []
             for cal_name, res_events in google_res.items():
                 for gevent in res_events:
-                    new_event = google_ev_format(service,gevent=gevent)
-                    google_events.append(new_event)
+                    if 'organizer' in gevent:
+                        new_event = google_ev_format(service, gevent=gevent)
+                        google_events.append(new_event)
 
             google_events_ids = [x['id'] for x in google_events]
             if debug:
@@ -161,6 +170,7 @@ def main():
             notion_events = []
             for nevent in notion_res:
                 new_event = notion_ev_format(nevent=nevent)
+
                 if (new_event["updated"] > last_sync):
                     notion_events.append(new_event)
 
@@ -188,7 +198,7 @@ def main():
                 if(gev == None):
                     if (nev["start"] != None and nev["calendar"] != None and not nev["deleted"]):
                         print(f"[{datetime.datetime.now()}] " +
-                              f"GOOGLE MISSING EVENT - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
+                              f"GOOGLE MISSING EVENT - {nev['calendar']} | [{nev['title']}] | {nev['start']} to {nev['end']}")
                         add_to_google.append(nev)
                 else:
                     gev = google_ev_format(service, gev)
@@ -199,21 +209,21 @@ def main():
                     else:
                         if (nev["deleted"] == True and gev["deleted"] == False and nev["updated"] > gev["updated"]):
                             print(f"[{datetime.datetime.now()}] " +
-                                  f"GOOGLE EVENT TO DELETE - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
+                                  f"GOOGLE EVENT TO DELETE - {nev['calendar']} | [{nev['title']}] | {nev['start']} to {nev['end']}")
                             delete_from_google.append(nev)
                         if (nev["deleted"] == False and gev["deleted"] == True) and (nev["updated"] > gev["updated"]):
                             print(f"[{datetime.datetime.now()}] " +
-                                  f"GOOGLE EVENT TO RESTORE - {nev['calendar']} | [{nev['title']}] | {nev['start']} -> {nev['end']}")
+                                  f"GOOGLE EVENT TO RESTORE - {nev['calendar']} | [{nev['title']}] | {nev['start']} to {nev['end']}")
                             restore_from_google.append(nev)
 
             for gev in google_events:
                 nev = notion_ev_search(client, gev)
 
                 if nev is None:
-                    if (gev["start"] != None and gev["calendar"] != None and not gev["deleted"]):
-                        print(f"[{datetime.datetime.now()}] " +
-                              f"NOTION MISSING EVENT - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
-                        add_to_notion.append(gev)
+                    # if (gev["start"] != None and gev["calendar"] != None and not gev["deleted"]):
+                    #     print(f"[{datetime.datetime.now()}] " +
+                    #           f"NOTION MISSING EVENT - {gev['calendar']} | [{gev['title']}] | {gev['start']} to {gev['end']}")
+                    #     add_to_notion.append(gev)
                 else:
                     nevf = notion_ev_format(nev)
                     if (not gev["deleted"] and not nevf["deleted"]):
@@ -223,11 +233,11 @@ def main():
                     else:
                         if (nevf["deleted"] == False and gev["deleted"] == True and gev["updated"] > nevf["updated"]):
                             print(f"[{datetime.datetime.now()}] " +
-                                  f"NOTION EVENT TO DELETE - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
+                                  f"NOTION EVENT TO DELETE - {gev['calendar']} | [{gev['title']}] | {gev['start']} to {gev['end']}")
                             delete_from_notion.append(nev)
                         if (nevf["deleted"] == True and gev["deleted"] == False) and (gev["updated"] > nevf["updated"]):
                             print(f"[{datetime.datetime.now()}] " +
-                                  f"NOTION EVENT TO RESTORE - {gev['calendar']} | [{gev['title']}] | {gev['start']} -> {gev['end']}")
+                                  f"NOTION EVENT TO RESTORE - {gev['calendar']} | [{gev['title']}] | {gev['start']} to {gev['end']}")
                             restore_from_notion.append(nev)
 
             if debug:
@@ -258,14 +268,14 @@ def main():
                 if new_event:
                     new_event = notion_ev_format(new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"ADDED | NOTION {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
+                          f"ADDED | NOTION {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} to {new_event['end']}")
 
             for event in add_to_google:
                 new_event = google_add_event(service, event)
                 if new_event:
                     new_event = google_ev_format(service, new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"ADDED | GOOGLE {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
+                          f"ADDED | GOOGLE {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} to {new_event['end']}")
 
             for nevupd in update_in_notion:
                 nev = notion_ev_search(client, nevupd)
@@ -273,7 +283,7 @@ def main():
                 if new_event:
                     new_event = notion_ev_format(new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"UPDATED | NOTION {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
+                          f"UPDATED | NOTION {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} to {new_event['end']}")
 
             for gevupd in update_in_google:
                 gev = google_ev_search(service, gevupd)
@@ -282,102 +292,133 @@ def main():
                 if new_event:
                     new_event = google_ev_format(service, new_event)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"UPDATED | GOOGLE {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} -> {new_event['end']}")
+                          f"UPDATED | GOOGLE {new_event['calendar']} | [{new_event['title']}] | {new_event['start']} to {new_event['end']}")
 
             for gevdel in delete_from_google:
                 res = google_delete_event(service, gevdel)
                 if res:
                     print(f"[{datetime.datetime.now()}] " +
-                          f"DELETED | GOOGLE {gevdel['calendar']} | [{gevdel['title']}] | {gevdel['start']} -> {gevdel['end']}")
+                          f"DELETED | GOOGLE {gevdel['calendar']} | [{gevdel['title']}] | {gevdel['start']} to {gevdel['end']}")
 
             for nevdel in delete_from_notion:
                 res = notion_delete_event(nevdel)
                 if res:
                     nevdel = notion_ev_format(nevdel)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"DELETED | NOTION {nevdel['calendar']} | [{nevdel['title']}] | {nevdel['start']} -> {nevdel['end']}")
+                          f"DELETED | NOTION {nevdel['calendar']} | [{nevdel['title']}] | {nevdel['start']} to {nevdel['end']}")
 
             for gevres in restore_from_google:
                 res = google_restore_event(service, gevres)
                 if res:
                     res = google_ev_format(service, res)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"RESTORED | GOOGLE {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
+                          f"RESTORED | GOOGLE {res['calendar']} | [{res['title']}] | {res['start']} to {res['end']}")
 
             for nevres in restore_from_notion:
-                res = notion_restore_event(nevres)  
+                res = notion_restore_event(nevres)
                 if res:
                     res = notion_ev_format(res)
                     print(f"[{datetime.datetime.now()}] " +
-                          f"RESTORED | NOTION {res['calendar']} | [{res['title']}] | {res['start']} -> {res['end']}")
+                          f"RESTORED | NOTION {res['calendar']} | [{res['title']}] | {res['start']} to {res['end']}")
 
-            last_sync = convert_datetime_timezone(datetime.datetime.utcnow() - datetime.timedelta(minutes=10), 'UTC', 'UTC')
+            last_sync = convert_datetime_timezone(
+                datetime.datetime.utcnow() - datetime.timedelta(minutes=10), 'UTC', 'UTC')
             time.sleep(70)
 
 
 def notion_ev_format(nevent):
 
-    new_event = {}
-    new_event["id"] = nevent.id.replace("-", "00a00")
-    new_event["title"] = nevent.name
+    attemts = 10
 
-    # new_event Target_Date  = nevent Target Date
-    if getattr(nevent, notion_date_prop) == None:
-        new_event["start"] = None
-        new_event["end"] = None
-        new_event["timezone"] = None
-    else:
-        new_event["start"] = getattr(
-            getattr(nevent, notion_date_prop), "start")
-        new_event["end"] = getattr(getattr(nevent, notion_date_prop), "end")
-        new_event["timezone"] = getattr(getattr(nevent, notion_date_prop), "timezone")
+    while(attemts > 0):
+        new_event = {}
+        new_event["id"] = nevent.id.replace("-", "00a00")
+        new_event["title"] = ""
+        if hasattr(nevent, 'name'):
+            new_event["title"] = nevent.name
 
-        # date/datetime, None
-        if new_event["end"] == None:
-            # date1, None
-            if isinstance(new_event["start"], datetime.date):
-                a = 'a'
-            # datetime1, None
-            else:
-                b = 'b'
+        target_date = None
 
-        # date/datetime, date/datetime
+        try:
+            target_date = getattr(nevent, notion_date_prop)
+        except:
+            a = 1
+
+        # new_event Target_Date  = nevent Target Date
+        if target_date == None:
+            new_event["start"] = None
+            new_event["end"] = None
+            new_event["timezone"] = None
         else:
-            # date, date
-            if isinstance(new_event["start"], datetime.date):
-                # date1, date1
-                if (new_event["start"] == new_event["end"]):
-                    new_event["end"] = None
-                # date1, date2
-            # datetime, datetime
+            new_event["start"] = getattr(
+                target_date, "start")
+            new_event["end"] = getattr(target_date, "end")
+            new_event["timezone"] = getattr(
+                target_date, "timezone")
+
+            if(new_event["timezone"] == ""):
+                new_event["timezone"] = default_tz
+
+            # date/datetime, None
+            if new_event["end"] == None:
+                # date1, None
+                if isinstance(new_event["start"], datetime.date):
+                    a = 'a'
+                # datetime1, None
+                else:
+                    b = 'b'
+
+            # date/datetime, date/datetime
             else:
-                # datetime1, datetime1
-                delta_minutes = (new_event["end"] -
-                                 new_event["start"]).seconds / 60
-                if (new_event["start"] == new_event["end"] or delta_minutes <= 15):
-                    new_event["end"] = None
-                # datetime1, datetime2
+                # date, date
+                if isinstance(new_event["start"], datetime.date):
+                    # date1, date1
+                    if (new_event["start"] == new_event["end"]):
+                        new_event["end"] = None
+                    # date1, date2
+                # datetime, datetime
+                else:
+                    # datetime1, datetime1
+                    delta_minutes = (new_event["end"] -
+                                    new_event["start"]).seconds / 60
+                    if (new_event["start"] == new_event["end"] or delta_minutes <= 15):
+                        new_event["end"] = None
+                    # datetime1, datetime2
 
-    if(new_event["start"]):
-        new_event["start"] = convert_datetime_timezone(new_event["start"], new_event["timezone"], 'UTC')
-    if(new_event["end"]):
-        new_event["end"] = convert_datetime_timezone(new_event["end"], new_event["timezone"], 'UTC')
+        if(new_event["start"]):
+            new_event["start"] = convert_datetime_timezone(
+                new_event["start"], new_event["timezone"], 'UTC')
+        if(new_event["end"]):
+            new_event["end"] = convert_datetime_timezone(
+                new_event["end"], new_event["timezone"], 'UTC')
 
-    if not hasattr(nevent, notion_cal_prop):
         new_event["calendar"] = ""
-    else:
-        new_event["calendar"] = getattr(nevent, notion_cal_prop)
+        try:
+            calendar = nevent.l_plan
+            calendar = next(item for item in calendar if item is not None)
+            calendar = calendar.area
+            calendar = next(item for item in calendar if item is not None)
+            calendar = calendar.name
+            new_event["calendar"] = calendar
 
-    # TODO TZ FORMAT
-    new_event["updated"] = convert_datetime_timezone(nevent.Last_Edited,'UTC','UTC')
-    deleted = getattr(nevent, notion_del_prop)
+        except Exception as e:
+            a = 1            
 
-    if deleted == False or deleted == '' or deleted == None:
-        new_event["deleted"] = False
-    else:
-        new_event["deleted"] = True
+        if (new_event["calendar"] == ""):
+            new_event["calendar"] = default_cal
 
-    return new_event
+        # TODO TZ FORMAT
+        new_event["updated"] = convert_datetime_timezone(
+            nevent.Last_Edited, 'UTC', 'UTC')
+        deleted = getattr(nevent, notion_del_prop)
+
+        if deleted == False or deleted == '' or deleted == None:
+            new_event["deleted"] = False
+        else:
+            new_event["deleted"] = True
+
+        return new_event
+
 
 def google_ev_format(service, gevent):
 
@@ -389,56 +430,76 @@ def google_ev_format(service, gevent):
     new_event["id"] = gevent["id"]
     new_event["title"] = gevent["summary"]
     new_event["description"] = gevent["description"]
+    new_event["start"] = None
+    new_event["end"] = None
+    new_event["timezone"] = default_tz
 
     # datetime1, datetime2
-    new_event["start"] = parse(gevent["start"]["dateTime"])
-    new_event["end"] = parse(gevent["end"]["dateTime"])
+    if "start" in gevent and "end" in gevent:
 
-    if "timeZone" in gevent["start"]:
-        new_event["timezone"] = gevent["start"]["timeZone"]
-    else:
-        try:
-            calendar = service.calendars().get(calendarId=gevent['organizer']['email']).execute()
-            new_event["timezone"] = calendar["timeZone"]
-        except Exception as e:
-            print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
+        if "dateTime" in gevent["start"]:
+            new_event["start"] = parse(gevent["start"]["dateTime"])
+            new_event["end"] = parse(gevent["end"]["dateTime"])
+        if "date" in gevent["start"]:
+            new_event["start"] = parse(gevent["start"]["date"])
+            new_event["end"] = parse(gevent["end"]["date"])
 
-    new_event["start"] = convert_datetime_timezone(new_event["start"],  new_event["timezone"], 'UTC')
-    new_event["end"] = convert_datetime_timezone(new_event["end"],  new_event["timezone"], 'UTC')
+        if "timeZone" in gevent["start"]:
+            new_event["timezone"] = gevent["start"]["timeZone"]
 
-    # all day events
-    if (new_event["start"].hour == 0 and new_event["start"].minute == 0
-            and new_event["end"].hour == 0 and new_event["end"].minute == 0):
-        days_delta = (new_event["end"] - new_event["start"]).days
-        if(days_delta > 1):
-            new_event["start"] = datetime.date(
-                new_event["start"].year, new_event["start"].month, new_event["start"].day)
-            new_event["end"] = datetime.date(
-                new_event["end"].year, new_event["end"].month, new_event["end"].day)
-        # date1, date1 + 1
-        if(days_delta == 1):
-            new_event["start"] = datetime.date(
-                new_event["start"].year, new_event["start"].month, new_event["start"].day)
-            new_event["end"] = None
-        # date1, date1
-        if(new_event["start"] == new_event["end"]):
-            new_event["start"] = datetime.date(
-                new_event["start"].year, new_event["start"].month, new_event["start"].day)
-            new_event["end"] = None
+        else:
+            if 'organizer' in gevent:
+                try:
+                    calendar = service.calendars().get(
+                        calendarId=gevent['organizer']['email']).execute()
+                    new_event["timezone"] = calendar["timeZone"]
+                except Exception as e:
+                    print(
+                        f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
 
-        # date1, date2
+        # all day events
+        if (new_event["start"].hour == 0 and new_event["start"].minute == 0
+                and new_event["end"].hour == 0 and new_event["end"].minute == 0):
+            days_delta = (new_event["end"] - new_event["start"]).days
+            if(days_delta > 1):
+                new_event["start"] = datetime.date(
+                    new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                new_event["end"] = datetime.date(
+                    new_event["end"].year, new_event["end"].month, new_event["end"].day)
+            # date1, date1 + 1
+            if(days_delta == 1):
+                new_event["start"] = datetime.date(
+                    new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                new_event["end"] = None
+            # date1, date1
+            if(new_event["start"] == new_event["end"]):
+                new_event["start"] = datetime.date(
+                    new_event["start"].year, new_event["start"].month, new_event["start"].day)
+                new_event["end"] = None
 
-    else:
-        # datetime1, datetime1
-        delta_minutes = (new_event["end"] - new_event["start"]).seconds / 60
-        if (new_event["start"] == new_event["end"] or delta_minutes <= 15):
-            new_event["end"] = None
-        # datetime1, datetime2
+            # date1, date2
+
+        else:
+            new_event["start"] = convert_datetime_timezone(
+                new_event["start"],  new_event["timezone"], 'UTC')
+            new_event["end"] = convert_datetime_timezone(
+                new_event["end"],  new_event["timezone"], 'UTC')
+
+            # datetime1, datetime1
+            delta_minutes = (new_event["end"] -
+                             new_event["start"]).seconds / 60
+            if (new_event["start"] == new_event["end"] or delta_minutes <= 15):
+                new_event["end"] = None
+            # datetime1, datetime2
 
     new_event["updated"] = parse(gevent["updated"].split('.')[0])
-    new_event["updated"] = convert_datetime_timezone(new_event["updated"],'UTC','UTC')
+    new_event["updated"] = convert_datetime_timezone(
+        new_event["updated"], 'UTC', 'UTC')
     if "organizer" in gevent:
-        new_event["calendar"] = gevent['organizer']['displayName']
+        if "displayName" in gevent['organizer']:
+            new_event["calendar"] = gevent['organizer']['displayName']
+        else:
+            new_event["calendar"] = gevent['organizer']["email"]
     else:
         new_event["calendar"] = ''
     if gevent["status"] == "cancelled":
@@ -447,6 +508,7 @@ def google_ev_format(service, gevent):
         new_event["deleted"] = False
 
     return new_event
+
 
 def compare_evs(nev, gev):
     ev_update = False
@@ -472,17 +534,20 @@ def compare_evs(nev, gev):
         ev_update = True
     return ev_update
 
+
 def notion_add_event(notion_client, google_client, event):
 
-    n_date = NotionDate(convert_datetime_timezone(event["start"], 'UTC', event['timezone']))
-    n_date.end = convert_datetime_timezone(event["end"], 'UTC', event['timezone'])
+    n_date = NotionDate(convert_datetime_timezone(
+        event["start"], 'UTC', event['timezone']))
+    n_date.end = convert_datetime_timezone(
+        event["end"], 'UTC', event['timezone'])
     n_date.timezone = event["timezone"]
-    
+
     try:
         notion_event = notion_client.collection.add_row()
         notion_event.name = event["title"]
         setattr(notion_event, notion_date_prop, n_date)
-        setattr(notion_event, notion_cal_prop, event["calendar"])
+        # setattr(notion_event, notion_cal_prop, event["calendar"])
 
         print(f"[{datetime.datetime.now()}] N ADD DONE {event['title']}")
 
@@ -490,9 +555,13 @@ def notion_add_event(notion_client, google_client, event):
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return None
 
-    nevent_id = str(notion_event.id.replace("-", "00a00"))
-    event_body = google_client.events().get(calendarId=google_calendar_ids[event["calendar"]],
-                                            eventId=event["id"]).execute()
+    try:
+        nevent_id = str(notion_event.id.replace("-", "00a00"))
+        event_body = google_client.events().get(calendarId=google_calendar_ids[event["calendar"]],
+                                                eventId=event["id"]).execute()
+    except Exception as e:
+        print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
+        return None
 
     event_body["id"] = nevent_id
     del event_body["iCalUID"]
@@ -512,27 +581,36 @@ def notion_add_event(notion_client, google_client, event):
 
     return notion_event
 
+
 def google_ev_search(google_client, _event):
     result = None
 
+    if _event['calendar'] not in google_calendar_ids:
+        new_calendar = google_calednar_add(google_client, _event)
+        google_calendar_ids[new_calendar['summary']] = new_calendar['id']
+
     try:
         result = google_client.events().get(
-            calendarId=google_calendar_ids[_event['calendar']], eventId=_event['id'], showdeleted=True).execute()
+            calendarId=google_calendar_ids[_event['calendar']], eventId=_event['id']).execute()
         if result != None:
             return result
     except Exception as e:
+        # print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         result = None
 
     for calendar in google_calendar_ids.values():
         try:
             result = google_client.events().get(
                 calendarId=calendar, eventId=_event['id']).execute()
-            if result != None:
+            
+            if result != None and "organizer" in result:
                 break
         except Exception as e:
+            # print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
             result = None
 
     return result
+
 
 def notion_ev_search(notion_client, _event):
     result = None
@@ -541,6 +619,7 @@ def notion_ev_search(notion_client, _event):
     except Exception as e:
         return None
     return result
+
 
 def google_add_event(google_client, _event):
 
@@ -591,7 +670,8 @@ def google_add_event(google_client, _event):
             "timeZone": _event["timezone"]
         },
         "summary": _event["title"],
-        "id": _event["id"]
+        "id": _event["id"],
+        "colorId": "8",
     }
     try:
         event = google_client.events().insert(
@@ -605,6 +685,7 @@ def google_add_event(google_client, _event):
 
     return event
 
+
 def notion_update_event(notion_event, event):
     n_date = None
 
@@ -613,20 +694,23 @@ def notion_update_event(notion_event, event):
     # datetime - x - Not impossible with google events
     # datetime - datetime - regular
 
-    n_date = NotionDate(convert_datetime_timezone(event["start"], 'UTC', event['timezone']))
-    n_date.end = convert_datetime_timezone(event["end"], 'UTC', event['timezone'])
+    n_date = NotionDate(convert_datetime_timezone(
+        event["start"], 'UTC', event['timezone']))
+    n_date.end = convert_datetime_timezone(
+        event["end"], 'UTC', event['timezone'])
     n_date.timezone = event["timezone"]
 
     try:
         notion_event.name = event["title"]
         setattr(notion_event, notion_date_prop, n_date)
-        setattr(notion_event, notion_cal_prop, event["calendar"])
+        # setattr(notion_event, notion_cal_prop, event["calendar"])
         print(f"[{datetime.datetime.now()}] N UPDATE DONE {event['title']}")
     except Exception as e:
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return None
 
     return notion_event
+
 
 def google_update_event(google_client, gevent, _event):
 
@@ -677,16 +761,17 @@ def google_update_event(google_client, gevent, _event):
             "timeZone": _event["timezone"]
         },
         "summary": _event["title"],
-        "id": _event["id"]
+        "id": _event["id"],
+        "colorId": "8",
     }
 
-    gev = google_ev_format(gevent)
+    gev = google_ev_format(google_client, gevent)
 
     if (_event["calendar"] != gev["calendar"]):
         try:
             # make old id free
             event = google_client.events().move(calendarId=google_calendar_ids[gev["calendar"]],
-                                                  eventId=(gev["id"]),  destination=google_calendar_ids[_event["calendar"]]).execute()
+                                                eventId=(gev["id"]),  destination=google_calendar_ids[_event["calendar"]]).execute()
             event = google_client.events().update(calendarId=google_calendar_ids[_event["calendar"]],
                                                   eventId=_event["id"], body=event_body).execute()
             print(f"[{datetime.datetime.now()}] G UPDATE DONE {_event['title']}")
@@ -705,6 +790,7 @@ def google_update_event(google_client, gevent, _event):
             return None
 
     return event
+
 
 def google_restore_event(google_client, _event):
 
@@ -770,6 +856,7 @@ def google_restore_event(google_client, _event):
 
     return event
 
+
 def google_delete_event(google_client, _event):
     try:
         event = google_client.events().delete(calendarId=google_calendar_ids[_event["calendar"]],
@@ -781,23 +868,25 @@ def google_delete_event(google_client, _event):
         return False
     return True
 
+
 def notion_delete_event(nev):
 
     try:
-        if (not hasattr(nev, notion_del_prop)): 
+        if (not hasattr(nev, notion_del_prop)):
             setattr(nev, notion_del_prop, "Deleted by google")
             print(f"[{datetime.datetime.now()}] " +
-                    f"N DELETE DONE {nev.title}")
+                  f"N DELETE DONE {nev.title}")
         else:
             if getattr(nev, notion_del_prop) == False:
                 setattr(nev, notion_del_prop, True)
                 print(f"[{datetime.datetime.now()}] " +
-                    f"N DELETE DONE {nev.title}")
+                      f"N DELETE DONE {nev.title}")
 
     except Exception as e:
         print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
         return False
     return True
+
 
 def notion_restore_event(event):
 
@@ -810,12 +899,31 @@ def notion_restore_event(event):
 
     return event
 
+
+def google_calednar_add(service, event):
+
+    calendar = {
+        'summary': event['calendar'],
+        'timeZone': event["timezone"]
+    }
+
+    created_calendar = None
+    try:
+        created_calendar = service.calendars().insert(body=calendar).execute()
+        print(f"[{datetime.datetime.now()}] G CAL CREATE DONE {event['calendar']}")
+    except Exception as e:
+        print(f"[{datetime.datetime.now()}] | {str(inspect.stack()[0][3])} " + str(e))
+        return None
+
+    return created_calendar
+
+
 def convert_datetime_timezone(dt, tz1, tz2):
-    
+
     if(not tz1 and not tz2):
         tz1 = 'UTC'
         tz2 = 'UTC'
-    if (isinstance(dt,datetime.datetime)):
+    if (isinstance(dt, datetime.datetime)):
         if dt.tzinfo is None:
             tz1 = pytz.timezone(tz1)
             dt = tz1.localize(dt)
@@ -823,6 +931,7 @@ def convert_datetime_timezone(dt, tz1, tz2):
         dt = dt.astimezone(tz2)
 
     return dt
+
 
 if __name__ == "__main__":
     if os.path.exists('token.pickle'):
