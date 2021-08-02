@@ -26,24 +26,22 @@ def gcal_auth():
     Prints the start and name of the next 10 events on the user"s calendar.
     """
     creds = None
-    # The file token.pickle stores the user"s access and refresh tokens, and is
+    # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
-            creds = pickle.load(token)
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            filename = "credentials.json"
             flow = InstalledAppFlow.from_client_secrets_file(
-                filename, SCOPES)
+                'credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open("token.pickle", "wb") as token:
-            pickle.dump(creds, token)
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
 
     main()
 
@@ -78,23 +76,7 @@ def main():
         datetime.datetime.utcnow() - datetime.timedelta(minutes=10), 'UTC', 'UTC')
 
     while(not False):
-        creds = None
-        # The file token.json stores the user's access and refresh tokens, and is
-        # created automatically when the authorization flow completes for the first
-        # time.
-        if os.path.exists('token.json'):
-            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-        # If there are no (valid) credentials available, let the user log in.
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', SCOPES)
-                creds = flow.run_local_server(port=0)
-            # Save the credentials for the next run
-            with open('token.json', 'w') as token:
-                token.write(creds.to_json())
+
 
         api_loaded = False
         try:
@@ -220,6 +202,7 @@ def main():
                 nev = notion_ev_search(client, gev)
 
                 if nev is None:
+                    a = 1
                     # if (gev["start"] != None and gev["calendar"] != None and not gev["deleted"]):
                     #     print(f"[{datetime.datetime.now()}] " +
                     #           f"NOTION MISSING EVENT - {gev['calendar']} | [{gev['title']}] | {gev['start']} to {gev['end']}")
